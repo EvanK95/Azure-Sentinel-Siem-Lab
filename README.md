@@ -63,4 +63,4 @@ This project is actively being built. Documentation, screenshots, and configurat
 
 ---
 
-*Part of my cybersecurity portfolio — [evank95.github.io/my-personal-website](https://evank95.github.io/my-personal-website/)*
+*Part of my cybersecurity portfolio — [evank95.github.io/My-CV-Page](https://evank95.github.io/My-CV-Page/)*
