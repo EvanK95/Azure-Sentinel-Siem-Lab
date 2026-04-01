@@ -83,27 +83,27 @@ azure-sentinel-siem-lab/
 
 ### Phase 1 — Azure Infrastructure Setup
 
-**Step 1: Azure Subscription & Resource Group**
+**Step 1: Log Analytics Workspace Deployment**
 
-Created a dedicated Resource Group `sentinel-lab-rg` in West Europe to contain all lab resources.
+Deployed `sentinel-lab-workspace` as the central data store where all logs are ingested and queried. Resource Group `sentinel-lab-rg` created in West Europe.
 
-![Resource Group](docs/screenshots/01-log-analytics-deployment-complete.png)
-
----
-
-**Step 2: Log Analytics Workspace**
-
-Deployed `sentinel-lab-workspace` — the data store where all logs are ingested and queried by Sentinel.
-
-![Log Analytics Workspace](docs/screenshots/02-sentinel-overview-dashboard.png)
+![Log Analytics Deployment Complete](docs/screenshots/01-log-analytics-deployment-complete.png)
 
 ---
 
-**Step 3: Microsoft Sentinel Deployment**
+**Step 2: Microsoft Sentinel Enabled**
 
-Enabled Microsoft Sentinel on top of the Log Analytics Workspace. This is the SIEM layer that provides threat detection, incident management, and SOAR capabilities.
+Enabled Microsoft Sentinel on top of the Log Analytics Workspace. Overview shows clean state — 0 incidents, 0 data connectors, ready to configure.
 
-![Sentinel Overview](docs/screenshots/02-sentinel-overview-dashboard.png)
+![Sentinel Overview Dashboard](docs/screenshots/02-sentinel-overview-dashboard.png)
+
+---
+
+**Step 3: Data Connectors — Empty State**
+
+Confirmed the Data Connectors page starts with 0 connected sources before configuration.
+
+![Data Connectors Empty](docs/screenshots/03-data-connectors-empty.png)
 
 ---
 
@@ -111,56 +111,71 @@ Enabled Microsoft Sentinel on top of the Log Analytics Workspace. This is the SI
 
 **Step 4: Windows Security Events Connector**
 
-Installed the **Windows Security Events** solution from the Sentinel Content Hub. This includes:
-- 2 Data Connectors
-- 20 Analytics Rule templates
-- 2 Workbooks
-- 50 Hunting Queries
+Located the **Windows Security Events** solution in the Content Hub. Includes 2 data connectors, 20 analytics rule templates, 2 workbooks, and 50 hunting queries.
 
-![Content Hub](docs/screenshots/05-windows-security-events-installed.png)
+![Content Hub - Not Installed](docs/screenshots/04-content-hub-windows-security-events.png)
+
+![Content Hub - Installed](docs/screenshots/05-windows-security-events-installed.png)
 
 ---
 
 **Step 5: Windows Server VM Deployment**
 
-Deployed a Windows Server 2022 Datacenter VM (`sentinel-windows-vm`) in Azure to act as a log source.
+Deployed `sentinel-windows-vm` — Windows Server 2022 Datacenter, Standard B2ts v2, West Europe, with RDP enabled and auto-shutdown at 11:00 PM.
 
-- **Size:** Standard B2ts v2
-- **Region:** West Europe
-- **Auto-shutdown:** 11:00 PM (cost control)
+![VM Review and Create](docs/screenshots/06-vm-review-create.png)
 
-![VM Overview](docs/screenshots/09-vm-overview.png)
+![VM Deployment Complete](docs/screenshots/07-vm-deployment-complete.png)
+
+All lab resources visible in the All Resources view: workspace, VM, network interfaces, storage.
+
+![All Resources Overview](docs/screenshots/08-all-resources-overview.png)
+
+![VM Overview - Running](docs/screenshots/09-vm-overview.png)
 
 ---
 
-**Step 6: Data Collection Rule (Azure Monitor Agent)**
+**Step 6: Data Collection Rule (DCR)**
 
-Created a Data Collection Rule to automatically install the Azure Monitor Agent on the VM and stream **All Security Events** to the Log Analytics Workspace.
+Created `windows-security-events-dcr` to automatically install Azure Monitor Agent on the VM and stream **All Security Events** to the workspace.
 
-```
-Windows VM → Azure Monitor Agent → Log Analytics → Sentinel
-```
+![DCR Creation](docs/screenshots/10-data-collection-rule-create.png)
 
-![Data Collection Rule](docs/screenshots/11-dcr-resources-vm-selected.png)
+![DCR - VM Selected](docs/screenshots/11-dcr-resources-vm-selected.png)
+
+![DCR Created - Connected](docs/screenshots/12-dcr-created.png)
 
 ---
 
 ### Phase 3 — Threat Detection
 
-**Step 7: RDP Connection & Attack Simulation**
+**Step 7: RDP Connection & Log Verification**
 
-Connected to the VM via RDP and simulated a brute force attack by generating multiple failed login attempts using `runas /user:fakeuser cmd`.
+Connected to the VM via RDP. Server Manager Local Server confirms connection to `sentinel-window` (IP 51.124.185.72).
 
-![Event Viewer](docs/screenshots/15-vm-failed-logon-events-4625.png)
+![RDP Connected - Server Manager](docs/screenshots/13-vm-rdp-connected.png)
 
-Windows Security Event **ID 4625** (Failed Logon) captured in Event Viewer.
+Windows Event Viewer Security log showing EventID 4688 (Process Creation) — confirms security auditing is active.
+
+![Event Viewer - Security Log](docs/screenshots/14-vm-event-viewer-security.png)
+
+EventID 4625 (Audit Failure) and EventID 4724 visible alongside CMD prompt showing failed `net user labadmin wrongpassword123` attempts.
+
+![Event Viewer - 4625 Audit Failure](docs/screenshots/14-vm-event-viewer-security-events.png)
+
+EventID 4625 detail — `runas /user:fakeuser cmd` generating failed logon events.
+
+![Event Viewer - runas fakeuser](docs/screenshots/15-vm-failed-logon-events-4625.png)
 
 ---
 
-**Step 8: KQL Query — Failed Logon Detection**
+**Step 8: KQL — Logs Flowing into Sentinel**
 
-Ran the first KQL query in Microsoft Sentinel to detect failed logon events (Event ID 4625):
+Confirmed SecurityEvent table populated — 39 results (1,000 results shown) from `sentinel-window` in the last 24 hours.
 
+![Sentinel Logs Flowing](docs/screenshots/16-sentinel-security-events-flowing.png)
+
+**Verification KQL:**
 ```kql
 SecurityEvent
 | where EventID == 4625
@@ -168,15 +183,27 @@ SecurityEvent
 | order by TimeGenerated desc
 ```
 
-![KQL Results](docs/screenshots/17-kql-failed-logon-results.png)
+4 EventID 4625 results confirmed from `sentinel-window\fakeuser`.
 
-Successfully retrieved failed logon events from the `sentinel-window\fakeuser` account.
+![KQL Failed Logon Results](docs/screenshots/17-kql-failed-logon-results.png)
 
 ---
 
 **Step 9: Analytics Rule — Brute Force Detection**
 
-Created a custom scheduled Analytics Rule to automatically detect brute force attacks:
+Defender Analytics starts empty — 0 active rules.
+
+![Defender Analytics - 0 Rules](docs/screenshots/18-defender-portal-analytics.png)
+
+New Scheduled rule created using the Analytics rule wizard:
+
+![Analytics Rule Wizard - Empty Form](docs/screenshots/19-analytics-rule-wizard.png)
+
+**Rule: Brute Force - Multiple Failed Logons** configured with name, description, High severity, MITRE ATT&CK T1110.
+
+![Analytics Rule - General Settings](docs/screenshots/19-analytics-rule-general.png)
+
+KQL query and scheduling configured — runs every 5 minutes, looks back 5 minutes, threshold > 0:
 
 ```kql
 SecurityEvent
@@ -185,15 +212,21 @@ SecurityEvent
 | where FailedAttempts >= 5
 ```
 
-**Rule Configuration:**
-- **Name:** Brute Force - Multiple Failed Logons
-- **Severity:** High
-- **MITRE ATT&CK:** Credential Access / T1110 - Brute Force
-- **Frequency:** Every 5 minutes
-- **Lookup period:** Last 5 minutes
-- **Threshold:** > 0 results
+![Analytics Rule - KQL and Scheduling](docs/screenshots/20-analytics-rule-scheduling.png)
 
-![Analytics Rule](docs/screenshots/25-analytics-rule-active.png)
+![Analytics Rule - Incident Settings Disabled](docs/screenshots/21-analytics-rule-incident-settings.png)
+
+![Analytics Rule - Alert Grouping Enabled](docs/screenshots/22-analytics-rule-incident-settings.png)
+
+![Analytics Rule - Automated Response](docs/screenshots/23-analytics-rule-automated-response.png)
+
+Review confirms all settings — Brute Force, High, T1110, 5min frequency, Alert grouping Enabled.
+
+![Analytics Rule - Review and Create](docs/screenshots/24-analytics-rule-review.png)
+
+Rule saved — **1 Active rule** confirmed. Toast: "Analytics rule 'Brute Force - Multiple Failed Logons' saved successfully."
+
+![Analytics - 1 Active Rule](docs/screenshots/25-analytics-rule-active.png)
 
 ---
 
@@ -201,172 +234,145 @@ SecurityEvent
 
 **Step 10: Brute Force Attack Simulation**
 
-Simulated a realistic brute force attack by running 20+ failed login attempts in rapid succession on the Windows VM:
+Simulated brute force with repeated `runas /user:fakeuser cmd` failing — "The user name or password is incorrect" in a continuous loop.
 
 ```cmd
 for /L %i in (1,1,20) do runas /user:fakeuser cmd
 ```
 
-![Brute Force Simulation](docs/screenshots/26-vm-brute-force-simulation.png)
+![VM - Brute Force Simulation](docs/screenshots/26-vm-brute-force-simulation.png)
+
+Sentinel confirmed **55 EventID 4625 events** from `sentinel-window\fakeuser`.
+
+![Sentinel Logs - 55 Events](docs/screenshots/27-sentinel-failed-logons-55-events.png)
 
 ---
 
 **Step 11: Incident Auto-Generated**
 
-Microsoft Sentinel automatically detected the attack and created a **High severity Incident** in the Microsoft Defender portal.
+Microsoft Sentinel automatically created a **High severity Incident** — "Brute Force - Multiple Failed Logons".
 
-![Incident Detected](docs/screenshots/28-incident-brute-force-detected.png)
+![Incidents - Brute Force Detected](docs/screenshots/28-incident-brute-force-detected.png)
 
----
+Incident details: Account `sentinel-window\fakeuser`, **24 FailedAttempts**, Credential Access category.
 
-**Step 12: Incident Investigation**
-
-Investigated the incident details:
-- **Account targeted:** `sentinel-window\fakeuser`
-- **Failed attempts detected:** 24 within 5 minutes
-- **Detection time:** Real-time (within 5 minutes of attack)
-- **MITRE tactic:** Credential Access
-
-![Incident Details](docs/screenshots/29-incident-details-brute-force.png)
+![Incident Details - fakeuser 24 Attempts](docs/screenshots/29-incident-details-brute-force.png)
 
 ---
 
 ### Phase 5 — Automation (SOAR)
 
-**Step 13: Logic App Deployment**
+**Step 12: Logic App Deployment**
 
-Deployed a new Azure Logic App (`sentinel-brute-force-playbook`) in the `sentinel-lab-rg` resource group, West Europe. This Logic App serves as the SOAR playbook for automated incident response.
+Deployed `sentinel-brute-force-playbook` Logic App in `sentinel-lab-rg`, West Europe.
 
-![Logic App Deployment](docs/screenshots/30-logic-app-deployment-complete.png)
+![Logic App Deployment Complete](docs/screenshots/30-logic-app-deployment-complete.png)
 
----
-
-**Step 14: Logic App Overview**
-
-The Logic App was created with Workflow Type: Stateful, Status: Enabled, in the sentinel-lab-rg resource group.
+Logic App Overview — 0 triggers, 0 actions, Stateful workflow, Enabled.
 
 ![Logic App Overview](docs/screenshots/31-logic-app-overview.png)
 
 ---
 
-**Step 15: Trigger — Microsoft Sentinel Incident**
+**Step 13: Logic App Designer — Trigger & Actions**
 
-Opened the Logic App Designer and configured the **Microsoft Sentinel incident** trigger. This fires automatically whenever a new incident is created in Sentinel. Authentication used OAuth connected to the Azure tenant.
+Empty designer — "Add a trigger" ready for configuration.
 
 ![Logic App Designer Empty](docs/screenshots/32-logic-app-designer-empty.png)
 
+Microsoft Sentinel incident trigger added — connected to `live.com#kotsvagg83@gmail.com` via OAuth.
+
 ![Sentinel Trigger Connected](docs/screenshots/33-logic-app-sentinel-connected.png)
 
----
+Create connection panel — OAuth authentication, Default Directory tenant.
 
-**Step 16: Email Action — Gmail & Outlook Integration**
+![Create Connection - OAuth](docs/screenshots/33-logic-app-sentinel-connection.png)
 
-Added a **Send email** action. Initially connected via Gmail (SOC-ALERT account), then finalized with **Outlook (Send an email V2)** connected to `kotsvagg83@hotmail.com`.
+Gmail (SOC-ALERT) connection attempted first — `kotsvagg83@gmail.com` connected.
 
-Configured with dynamic fields from the Sentinel incident:
+> **Note:** Gmail connector is blocked by Microsoft policy when combined with Sentinel (`GmailConnectorPolicyViolation`). Switched to Outlook.com.
 
-- **To:** kotsvagg83@hotmail.com
-- **Subject:** 🚨 Sentinel Alert: Brute Force Incident Detected
-- **Importance:** High
-- **Body:**
-  - Incident Title (dynamic)
-  - Incident Severity (dynamic)
-  - Incident Status (dynamic)
-  - Incident Created Time UTC (dynamic)
-  - "Please investigate immediately in Microsoft Sentinel."
+![Gmail Connection Attempt](docs/screenshots/34-logic-app-gmail-connection.png)
 
-![Gmail Connection](docs/screenshots/34-logic-app-gmail-connection.png)
+Gmail email body configured with dynamic Sentinel fields (Incident Title, Severity, Status, Created Time UTC).
 
-![Email Body Configured](docs/screenshots/37-logic-app-complete-email-body.png)
+![Gmail Email Body - Dynamic Fields](docs/screenshots/37-logic-app-complete-email-body.png)
+
+Final configuration switched to **Outlook Send an email (V2)** — `kotsvagg83@hotmail.com`, dynamic fields, connected to Outlook.com.
 
 ![Outlook Email Configured](docs/screenshots/37-logic-app-outlook-email-configured.png)
 
 ---
 
-**Step 17: Playbook Saved Successfully**
+**Step 14: Playbook Saved**
 
-Saved the completed Logic App workflow. Notification confirmed: "Successfully saved workflow sentinel-brute-force-playbook".
+Logic App saved successfully. Notification: "Successfully saved workflow 'sentinel-brute-force-playbook'". Final flow: `[Microsoft Sentinel incident] → [Send an email (V2)]`.
 
-Final workflow:
-```
-[Microsoft Sentinel incident] → [Send an email (V2)]
-```
-
-![Playbook Saved](docs/screenshots/38-logic-app-saved-successfully.png)
+![Logic App Saved Successfully](docs/screenshots/38-logic-app-saved-successfully.png)
 
 ---
 
-**Step 18: Sentinel Permissions for Playbooks**
+**Step 15: Sentinel Permissions & Automation Rule**
 
-Navigated to **Sentinel → Automation** and clicked **Configure permissions**. Granted Microsoft Sentinel permission to run playbooks by selecting the `sentinel-lab-rg` resource group.
+Automation page — 0 rules, 1 enabled playbook.
 
 ![Automation Page](docs/screenshots/39-automation-page.png)
 
-![Sentinel Permissions](docs/screenshots/40-sentinel-permissions-playbook.png)
+Granted Sentinel permissions to run playbooks by selecting `sentinel-lab-rg`.
 
----
+![Manage Permissions - sentinel-lab-rg](docs/screenshots/40-sentinel-permissions-playbook.png)
 
-**Step 19: Automation Rule — Playbook Attachment**
-
-Created an Automation Rule named **"Brute Force - Run Playbook"**:
-
-- **Trigger:** When incident is created
-- **Condition:** Analytic rule name contains "Brute Force - Multiple Failed Logons"
-- **Action:** Run playbook → `sentinel-brute-force-playbook` (Azure subscription 1 / sentinel-lab-rg)
-- **Expiration:** Indefinite
-- **Order:** 1
+Created Automation Rule **"Brute Force - Run Playbook"**:
+- Trigger: When incident is created
+- Condition: Analytic rule name Contains "Brute Force - Multiple Failed Logons"
+- Action: Run playbook → `sentinel-brute-force-playbook`
+- Expiration: Indefinite, Order: 1
 
 ![Automation Rule Configured](docs/screenshots/41-automation-rule-configured.png)
+
+Automation Rule active — 1 rule, 1 enabled rule, 1 enabled playbook confirmed.
 
 ![Automation Rule Active](docs/screenshots/42-automation-rule-active.png)
 
 ---
 
-**Step 20: Attack Simulation & Playbook Validation**
+**Step 16: End-to-End Validation**
 
-Triggered a new brute force simulation on the VM to validate the full automation chain end-to-end:
+Second brute force simulation to test the full automation chain:
 
 ```cmd
 for /L %i in (1,1,20) do runas /user:fakeuser cmd
 ```
 
-![Attack Simulation](docs/screenshots/43-vm-brute-force-simulation-2.png)
+![VM - Brute Force Simulation 2](docs/screenshots/43-vm-brute-force-simulation-2.png)
 
-The Logic App executed successfully — **2 successful runs** visible in the Run history (9:23 PM and 9:28 PM).
+Logic App Run history — **2 successful runs** (9:28 PM and 9:23 PM, both Succeeded).
 
-![Logic App Run Succeeded](docs/screenshots/46-logic-app-run-succeeded.png)
+![Logic App - 2 Successful Runs](docs/screenshots/46-logic-app-run-succeeded.png)
 
----
-
-**Step 21: Email Alert Received ✅**
-
-Automated email alert received in Outlook inbox with full incident details:
-
+Automated email received in Outlook inbox — High importance, all dynamic fields populated:
 - **Subject:** 🚨 Sentinel Alert: Brute Force Incident Detected
-- **Importance:** High
 - **Incident Title:** Brute Force - Multiple Failed Logons
 - **Severity:** High
 - **Status:** New
-- **Time:** 2026-03-30T18:26:14Z
+- **Time:** 2026-03-30T18:26:14.8833333Z
 - **Message:** "Please investigate immediately in Microsoft Sentinel."
 
 ![Email Alert Received](docs/screenshots/47-email-alert-with-dynamic-data.png)
 
-**Full SOAR chain validated:** Attack simulation → Sentinel detection → Incident created → Automation Rule triggered → Logic App executed → Email delivered. ✅
+**Full SOAR chain validated:** Attack → Sentinel detection → Incident created → Automation Rule triggered → Logic App executed → Email delivered ✅
 
 ---
 
 ### Phase 6 — Additional KQL Detection Rules
 
-**Step 22: Three Additional Analytics Rules**
-
-Expanded detection coverage with 3 new custom rules covering the MITRE ATT&CK framework beyond brute force.
+**Step 17: Three Additional Analytics Rules**
 
 ---
 
 **Rule 1 — Successful Login After Multiple Failures**
 
-Detects a successful login following 3+ failed attempts from the same account within 1 hour — a strong indicator of a successful brute force attack.
+Detects a successful logon (EventID 4624) from an account that previously generated 3+ failed logons (EventID 4625) within 1 hour. High-fidelity indicator of a completed brute force attack.
 
 ```kql
 let FailedLogins = SecurityEvent
@@ -385,13 +391,15 @@ SecurityEvent
 - **Severity:** High | **MITRE:** Credential Access / T1110
 - **Frequency:** Every 5 min | **Lookup:** Last 1 hour
 
-![Rule 1 Active](docs/screenshots/48-rule1-successful-login-after-failures.png)
+Analytics dashboard showing 2 active rules — Rule 1 selected with full details panel visible.
+
+![Rule 1 - Successful Login After Multiple Failures](docs/screenshots/48-rule1-successful-login-after-failures.png)
 
 ---
 
 **Rule 2 — New User Account Created**
 
-Detects creation of a new local user account (EventID 4720). A common persistence technique used by attackers after initial compromise.
+Detects creation of a new local user account (EventID 4720). Common persistence technique after initial compromise.
 
 ```kql
 SecurityEvent
@@ -403,13 +411,15 @@ SecurityEvent
 - **Severity:** Medium | **MITRE:** Persistence / T1136 - Create Account
 - **Frequency:** Every 5 min | **Lookup:** Last 1 hour
 
-![Rule 2 Active](docs/screenshots/49-rule2-new-user-account-created.png)
+Analytics dashboard showing 3 active rules — Rule 2 saved with toast notification "Analytics rule 'New User Account Created' saved successfully."
+
+![Rule 2 - New User Account Created](docs/screenshots/49-rule2-new-user-account-created.png)
 
 ---
 
 **Rule 3 — User Added to Admin Group**
 
-Detects when a user is added to the local Administrators group (EventID 4732). Indicates privilege escalation.
+Detects when a user is added to the local Administrators group (EventID 4732). Privilege escalation indicator.
 
 ```kql
 SecurityEvent
@@ -421,56 +431,65 @@ SecurityEvent
 - **Severity:** High | **MITRE:** Privilege Escalation / T1078 - Valid Accounts
 - **Frequency:** Every 5 min | **Lookup:** Last 1 hour
 
-![Rule 3 Active](docs/screenshots/50-rule3-user-added-to-admin-group.png)
+> **Note:** Rule 3 screenshot was not captured separately — it is visible as the 3rd active rule in the Analytics list (screenshot 49 shows 3 active rules).
 
 ---
 
-**Step 23: Attack Simulation — All Rules**
+**Step 18: Attack Simulation — All Rules**
 
-Simulated all attack scenarios on the Windows VM:
+**Stage 1 — Brute force** (`net use` against localhost, triggering Brute Force rule):
 
 ```cmd
-# Brute force
 for /L %i in (1,1,10) do net use \\localhost\IPC$ /user:testuser wrongpassword 2>nul
+```
 
-# New user creation (persistence)
+![Attack Simulation - net use loop (testuser)](docs/screenshots/51-brute-force-incidents-triggered.png)
+
+**Stages 2 & 3 — New user + privilege escalation:**
+
+```cmd
 net user hacker P@ssword123! /add
-
-# Privilege escalation
 net localgroup Administrators hacker /add
 ```
 
-![Attack Simulation](docs/screenshots/56-attack-simulation-commands.png)
+Full attack chain visible — brute force loop (`labadmin` + `LabAdmin@2025!`), followed by `net user hacker /add` and `net localgroup Administrators hacker /add`.
 
-All rules triggered successfully in Microsoft Sentinel:
+![Attack Simulation - Full Attack Chain](docs/screenshots/55-all-three-incidents-active.png)
 
-![All Incidents Active](docs/screenshots/55-all-three-incidents-active.png)
+---
 
-- ✅ **User Added to Admin Group** — High, Privilege escalation
-- ✅ **New User Account Created** — Medium, Persistence
-- ✅ **Brute Force - Multiple Failed Logons** — High, Credential access
+**Step 19: Incident Investigation**
+
+Brute Force alert details — query results show 8 items: `administrator` (60 failed attempts), `user` (15), `scans` (6), confirming mass authentication attempts detected.
+
+![Brute Force Alert Details](docs/screenshots/52-brute-force-alert-details.png)
+
+All three incident types generated — **User Added to Admin Group** (High, Privilege escalation), **New User Account Created** (Medium, Persistence), **Brute Force - Multiple Failed Logons** (High, Credential access).
+
+![All Three Incident Types Active](docs/screenshots/56-attack-simulation-commands.png)
+
+Also confirmed: Brute Force incidents list showing multiple detections over 1 week (Incident IDs 1 and 2).
+
+![Brute Force Incidents List](docs/screenshots/51-brute-force-incidents-triggered__1_.png)
+
+> **Note on Rule 1:** The `net use` simulation did not produce matching EventID 4625 + 4624 pairs for the same account under NTLM. The rule logic is valid and would fire correctly in a real network brute-force scenario.
 
 ---
 
 ### Phase 7 — SOC Dashboard
 
-**Step 24: Custom Workbook — SOC Dashboard**
+**Step 20: Custom Workbook — SOC Dashboard**
 
-Built a custom Microsoft Sentinel Workbook (`SOC Dashboard - Azure Sentinel Lab`) with 4 live visualization panels:
+Built **"SOC Dashboard - Azure Sentinel Lab"** with 4 live visualization panels via Sentinel Workbooks JSON editor:
 
 | Panel | Type | What it shows |
 |---|---|---|
-| Incidents by Severity | Pie Chart | High vs Medium incident distribution |
-| Incidents Over Time | Time Chart | Attack spike timeline |
-| Top 10 Failed Login Accounts | Bar Chart | Most targeted accounts |
-| Recent Incidents | Table | Latest 10 incidents with status |
+| Incidents by Severity | Donut chart | High (19) vs Medium (6) — Total 25 |
+| Incidents Over Time | Time chart | Attack spike timeline Mar 29–30 |
+| Top 10 Failed Login Accounts | Bar chart | `sentinel-window\administrator` — 605 attempts |
+| Recent Incidents | Table | Latest incidents: "User Added to Admin Group", High, New |
 
-![SOC Dashboard](docs/screenshots/57-soc-dashboard-saved.png)
-
-**Live data from the lab:**
-- **25 total incidents** (19 High, 6 Medium)
-- **Top offender:** `sentinel-window\administrator` — 605 failed attempts
-- **Attack spike** clearly visible on the timeline
+![SOC Dashboard - Azure Sentinel Lab](docs/screenshots/57-soc-dashboard-saved.png)
 
 ---
 
@@ -511,18 +530,11 @@ Built a custom Microsoft Sentinel Workbook (`SOC Dashboard - Azure Sentinel Lab`
 - [x] All rules tested with live VM simulation
 
 **Phase 7 — SOC Dashboard**
-- [x] Incidents by Severity (pie chart)
+- [x] Incidents by Severity (donut chart)
 - [x] Incidents Over Time (time chart)
 - [x] Top 10 Failed Login Accounts (bar chart)
 - [x] Recent Incidents (table)
 - [x] Saved as "SOC Dashboard - Azure Sentinel Lab"
-
-**Phase 8 — Final Documentation**
-- [x] Complete README with all 8 phases
-- [x] All KQL queries documented
-- [x] MITRE ATT&CK coverage table
-- [x] Architecture diagram
-- [x] Lessons learned
 
 ---
 
