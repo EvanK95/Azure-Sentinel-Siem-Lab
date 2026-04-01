@@ -470,7 +470,7 @@ All three incident types generated — **User Added to Admin Group** (High, Priv
 
 Also confirmed: Brute Force incidents list showing multiple detections over 1 week (Incident IDs 1 and 2).
 
-![Brute Force Incidents List](docs/screenshots/51-brute-force-incidents-triggered__1_.png)
+![Brute Force Incidents List](docs/screenshots/51-brute-force-incidents-triggered%20(1).png)
 
 > **Note on Rule 1:** The `net use` simulation did not produce matching EventID 4625 + 4624 pairs for the same account under NTLM. The rule logic is valid and would fire correctly in a real network brute-force scenario.
 
